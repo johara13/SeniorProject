@@ -3,21 +3,27 @@
 """Returns likely emotions based on person's face"""
 
 import argparse
+from google.appengine.ext import vendor
+vendor.add('lib')
 import base64
 import webapp2
+import logging
 import jinja2
 import os
+import cStringIO
 import urllib
 from PIL import Image
 from PIL import ImageDraw
-
-#from google.appengine.ext import vendor
-#vendor.add('lib')
-
+import cloudstorage as gcs    
+from google.appengine.api import app_identity
 from googleapiclient import discovery
 import httplib2
 from oauth2client.client import GoogleCredentials
 from fileinput import filename
+from google.appengine.api import images
+
+from google.appengine.ext import blobstore
+from google.appengine.ext.webapp import blobstore_handlers
 
 DEFAULT_INPUTTXT = 'face2.jpg'
 
@@ -28,15 +34,18 @@ JINJA_ENVIRONMENT = jinja2.Environment(
 # [START get_vision_service]
 DISCOVERY_URL='https://{api}.googleapis.com/$discovery/rest?version={apiVersion}'
 
+my_default_retry_params = gcs.RetryParams(initial_delay=0.2,
+                                          max_delay=5.0,
+                                          backoff_factor=2,
+                                          max_retry_period=15)
+gcs.set_default_retry_params(my_default_retry_params)
+
 
 def get_vision_service():
     credentials = GoogleCredentials.get_application_default()
     return discovery.build('vision', 'v1', credentials=credentials,
                            discoveryServiceUrl=DISCOVERY_URL)
-# [END get_vision_service]
 
-
-# [START detect_face]
 def detect_face(image_content, max_results=1):
     """Uses the Vision API to detect faces in the given file.
     Args:
@@ -44,16 +53,20 @@ def detect_face(image_content, max_results=1):
     Returns:
         An array of dicts with information about the faces in the picture.
     """
+    buffer = cStringIO.StringIO()
+    image_content.save(buffer, format="JPEG")
+    img_str = base64.b64encode(buffer.getvalue())
+    
     batch_request = [{
         'image': {
-            'content': base64.b64encode(image_content).decode('UTF-8')
+            #'content': base64.b64encode(image_content).decode('UTF-8')
+            'content': img_str.decode('UTF-8')
             },
         'features': [{
             'type': 'FACE_DETECTION',
             'maxResults': max_results,
             }]
         }]
-
     service = get_vision_service()
     request = service.images().annotate(body={
         'requests': batch_request,
@@ -62,14 +75,11 @@ def detect_face(image_content, max_results=1):
 
     faceAnnotations = response['responses'][0]['faceAnnotations']
     return faceAnnotations[0]
-# [END detect_face]
-
-
-# [START highlight_faces]
 
 RATINGS = ['LIKELY','VERY_LIKELY']
 
 def likely_sentiment(face):
+    #returns the sentiment felt in the face data
     if face['joyLikelihood'] in RATINGS:
         return 'JOY'
     if face['sorrowLikelihood'] in RATINGS:
@@ -78,50 +88,62 @@ def likely_sentiment(face):
         return 'ANGER'
     if face['surpriseLikelihood'] in RATINGS:
         return 'SURPRISE'
-# [END highlight_faces]
+
 
 def main(imageurl):
-     with open(imageurl, 'rb') as image:
-            result1 = lambda_handler({'image': image.read()}, None)
-            result  = result1['likely_sentiment']
-            #self.response.write(result)
-            return result
+    #opens image and passes it to lambda handler, returning the emotion felt
+    blob_reader = blobstore.BlobReader(imageurl)
+    img = Image.open(blob_reader)
+    result = lambda_handler(img, None)['likely_sentiment']
+    return result
 
-
-# [START main]
 def lambda_handler(event, context):
-    face = detect_face(event['image'])
+    #passes image to detect_face and returns dictionary with likelysentiment
+    face = detect_face(event)
     return {
         'likely_sentiment':likely_sentiment(face)
     }
-# [END main]
+
 class MainPage(webapp2.RequestHandler):
+    #the landing page
     def get(self):
-        #self.response.write('Hello, webapp2')
-        #print 'Hello World'
-        imageurl = self.request.get('inputtxt',DEFAULT_INPUTTXT)    
-        result = main(imageurl)
-        template_values = { 'result': result,
-                           'inputtxt': imageurl}
+        upload_url = blobstore.create_upload_url('/upload')
+        template_values = { 'upload_url' : upload_url}
         template = JINJA_ENVIRONMENT.get_template('index.html')
         self.response.write(template.render(template_values))
 
-class UploadImage(webapp2.RequestHandler):
-    def post(self):
-        imageurl = self.request.get('inputtxt',DEFAULT_INPUTTXT)        
-        self.redirect('/?'+urllib.urlencode({'inputtxt' : imageurl})) 
+class UploadImage(blobstore_handlers.BlobstoreUploadHandler):
+    #handles file uploads
+    def post(self):   
+        upload_files = self.get_uploads()
+        blob_info = upload_files[0]
+        self.redirect('/serve/%s' % blob_info.key())
+        
+class ServeHandler(blobstore_handlers.BlobstoreDownloadHandler):
+    #displays uploaded file and results
+    def get(self, photo_key):
+        if not blobstore.get(photo_key):
+            self.error(404)
+        else:  
+            upload_url = blobstore.create_upload_url('/upload')        
+            result = main(photo_key)
+            blob_reader = blobstore.BlobReader(photo_key)
+            img = Image.open(blob_reader)
+            buffer = cStringIO.StringIO()
+            img.save(buffer, format="JPEG")
+            img_str = base64.b64encode(buffer.getvalue())
+            template_values = { 'result': result,
+                                'ifile': img_str.decode('UTF-8'),
+                                'upload_url' : upload_url
+                                }
+            template = JINJA_ENVIRONMENT.get_template('index.html')
+            self.response.write(template.render(template_values))
 
         
 app = webapp2.WSGIApplication([
     ('/', MainPage),
-    ('/sign', UploadImage)
+    ('/upload', UploadImage),
+    ('/serve/([^/]+)?', ServeHandler)
     ], debug = True)
-#if __name__ == '__main__':
-    #parser = argparse.ArgumentParser(
-    #    description='Detects faces in the given image.')
-    #parser.add_argument(
-     #   'input_image', help='the base 64 encoded image you\'d like to detect faces in.')
-    #args = parser.parse_args()
 
-    #with open(args.input_image, 'rb') as image:
     

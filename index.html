@@ -6,17 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
     <meta name="description" content="">
-    <meta name="author" content="">
-    <link rel="icon" href="../../favicon.ico">
+    <meta name="author" content="Jimmy O'Hara and Dan Sullivan">
+    <link rel="icon" href="img/favicon.ico">
 
     <title>Faces</title>
 
     <!-- Bootstrap core CSS -->
-    <link href = "//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/css/bootstrap.min.css" rel = "stylesheet">
+    <link href = "/css/bootstrap.min.css" rel = "stylesheet">
     <!-- Bootstrap theme -->
     <link href="css/bootstrap-theme.css" rel="stylesheet">
     <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
-    <link href="js/ie10-viewport-bug-workaround.css" rel="stylesheet">
+    <link href="css/ie10-viewport-bug-workaround.css" rel="stylesheet">
 
     <!-- Custom styles for this template -->
     <link href="css/theme.css" rel="stylesheet">
@@ -57,27 +57,30 @@
       <!-- Main jumbotron for a primary marketing message or call to action -->
       <div class="jumbotron">
         <h1>Faces</h1>
-        <p>Outputs emotion face feels</p>
+        <p>Outputs emotion face feels. Can be Joy, Sorrow, Anger, Surprise</p>
       </div>
-
-
       <div class="page-header">
-        <h1>Type name of file</h1>
+        <h1>Upload file with face</h1>
       </div>
-	<label class="custom-file">
- 	 	<input type="file" id="image_url" class="custom-file-input">
-  		<span class="custom-file-control"></span>
-	</label>
-	<form action="/sign?imageurl={{ imageurl }}"  method="post">
-        <div><textarea name="inputtxt" class="input-block-level" rows="1"></textarea></div>
-        <div><input type="submit" class="btn btn-large btn-primary" value="submit text"></div>
-      </form>
-
+      <div class="row">
+      	<div class="col-md-4">
+      		<form action="{{ upload_url }}" method="post" enctype="multipart/form-data">
+      			<label class="custom-file">
+ 	 				<input type="file" name="file" class="custom-file-input">
+ 	 				<div><input type="submit" class="btn btn-large btn-primary" value="Submit file"></div>
+  					<span class="custom-file-control"></span>
+				</label>
+      		</form>
+      		<blockquote>The person in the picture is most likely feeling: {{ result }}</blockquote>
+      	</div>
+      	<div class="col-md-6">
+      		<img src="data:image/gif;base64,{{ ifile }}" class="img-rounded" alt="Upload Image">
+      	</div>
+      </div>
       
-      <blockquote>the result is: {{ result }}</blockquote>
       
-      <img src="{{ inputtxt }}" width="475" height="278">
-
+	</div>
+	<!-- 
     <!-- Bootstrap core JavaScript
     ================================================== -->
     <!-- Placed at the end of the document so the pages load faster -->
