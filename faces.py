@@ -46,7 +46,7 @@ def get_vision_service():
     return discovery.build('vision', 'v1', credentials=credentials,
                            discoveryServiceUrl=DISCOVERY_URL)
 
-def detect_face(image_content, max_results=1):
+def detect_face(image_content, max_results=4):
     #uses vision api to detect faces in image
     #args: image_content, Image file
     
@@ -70,11 +70,34 @@ def detect_face(image_content, max_results=1):
         'requests': batch_request,
         })
     response = request.execute()
-
-    faceAnnotations = response['responses'][0]['faceAnnotations']
-    return faceAnnotations[0]
+    if response['responses'] and 'faceAnnotations' in response['responses'][0]:
+        faceAnnotations = response['responses'][0]['faceAnnotations']
+        return faceAnnotations
+    
+    else:
+        return None
 
 RATINGS = ['LIKELY','VERY_LIKELY']
+
+def highlight_faces(image, faces, output_filename):
+    """Draws a polygon around the faces, then saves to output_filename.
+
+    Args:
+      image: a file containing the image with the faces.
+      faces: a list of faces found in the file. This should be in the format
+          returned by the Vision API.
+      output_filename: the name of the image file to be created, where the
+          faces have polygons drawn around them.
+    """
+    im = image
+    draw = ImageDraw.Draw(im)
+
+    for face in faces:
+        box = [(v.get('x', 0.0), v.get('y', 0.0))
+               for v in face['fdBoundingPoly']['vertices']]
+        draw.line(box + [box[0]], width=5, fill='#00ff00')
+
+    return im
 
 def likely_sentiment(face):
     #returns the sentiment felt in the face data
@@ -82,25 +105,31 @@ def likely_sentiment(face):
         return 'JOY'
     if face['sorrowLikelihood'] in RATINGS:
         return 'SORROW'
-    if face['angerLikelihood'] in RATINGS:
-        return 'ANGER'
     if face['surpriseLikelihood'] in RATINGS:
         return 'SURPRISE'
-
+    if face['angerLikelihood'] in RATINGS:
+        return 'ANGER'
+    
 
 def main(imageurl):
     #opens image and passes it to lambda handler, returning the emotion felt
     blob_reader = blobstore.BlobReader(imageurl)
     img = Image.open(blob_reader)
-    result = lambda_handler(img, None)['likely_sentiment']
+    result = lambda_handler(img, None)
     return result
 
 def lambda_handler(event, context):
     #passes image to detect_face and returns dictionary with likelysentiment
-    face = detect_face(event)
-    return {
-        'likely_sentiment':likely_sentiment(face)
-    }
+    face = detect_face(event, 4)
+    if not face:
+        return None
+    else:
+        result = {}
+        n = 0
+        for f in face:
+            result[n] = likely_sentiment(f)
+            n = n+1
+        return result
 
 class MainPage(webapp2.RequestHandler):
     #the landing page
@@ -127,11 +156,17 @@ class ServeHandler(blobstore_handlers.BlobstoreDownloadHandler):
             result = main(photo_key)
             blob_reader = blobstore.BlobReader(photo_key)
             img = Image.open(blob_reader)
-            buffer = cStringIO.StringIO()
-            img.save(buffer, format="JPEG")
-            img_str = base64.b64encode(buffer.getvalue())
+            faces = detect_face(img,4)
+            if faces:
+                im = highlight_faces(img, faces,"out.jpg")
+                buffer = cStringIO.StringIO()
+                im.save(buffer, format="JPEG")
+            else:
+                buffer = cStringIO.StringIO()
+                img.save(buffer, format="JPEG")
+            img_str = base64.b64encode(buffer.getvalue()).decode('UTF-8')
             template_values = { 'result': result,
-                                'ifile': img_str.decode('UTF-8'),
+                                'ifile': img_str,
                                 'upload_url' : upload_url
                                 }
             template = JINJA_ENVIRONMENT.get_template('index.html')
