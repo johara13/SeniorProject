@@ -47,12 +47,10 @@ def get_vision_service():
                            discoveryServiceUrl=DISCOVERY_URL)
 
 def detect_face(image_content, max_results=1):
-    """Uses the Vision API to detect faces in the given file.
-    Args:
-        face_file: A file-like object containing an image with faces.
-    Returns:
-        An array of dicts with information about the faces in the picture.
-    """
+    #uses vision api to detect faces in image
+    #args: image_content, Image file
+    
+    #converts image file to base64 and passes it to Vision API
     buffer = cStringIO.StringIO()
     image_content.save(buffer, format="JPEG")
     img_str = base64.b64encode(buffer.getvalue())
